@@ -2,7 +2,6 @@ import os
 from flask import Flask, jsonify
 from config import Config
 from app.extensions import db, migrate, jwt, mail, cors
-from app.routes.profiles import profiles_bp
 
 
 def create_app(config_class=Config):
@@ -25,16 +24,19 @@ def create_app(config_class=Config):
     # Register blueprints
     from app.routes.auth import auth_bp
     from app.routes.users import users_bp
+    from app.routes.profiles import profiles_bp
+    from app.routes.tasks import tasks_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(profiles_bp)
+    app.register_blueprint(tasks_bp)
 
+    # JWT callbacks
     @jwt.user_identity_loader
     def user_identity_lookup(user_id):
         return str(user_id)
-    
-    # JWT error handlers
+
     @jwt.expired_token_loader
     def expired_token_callback(jwt_header, jwt_payload):
         return jsonify({
