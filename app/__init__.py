@@ -26,11 +26,13 @@ def create_app(config_class=Config):
     from app.routes.users import users_bp
     from app.routes.profiles import profiles_bp
     from app.routes.tasks import tasks_bp
+    from app.routes.attendance import attendance_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(profiles_bp)
     app.register_blueprint(tasks_bp)
+    app.register_blueprint(attendance_bp)
 
     # JWT callbacks
     @jwt.user_identity_loader
