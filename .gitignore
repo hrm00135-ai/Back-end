@@ -1,0 +1,26 @@
+# Environment
+.env
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Uploads
+uploads/
+
+# Database migrations (keep in git but ignore auto-generated)
+migrations/versions/*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
