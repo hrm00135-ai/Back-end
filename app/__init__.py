@@ -2,6 +2,7 @@ import os
 from flask import Flask, jsonify
 from config import Config
 from app.extensions import db, migrate, jwt, mail, cors
+from app.routes.profiles import profiles_bp
 
 
 def create_app(config_class=Config):
@@ -27,6 +28,7 @@ def create_app(config_class=Config):
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(users_bp)
+    app.register_blueprint(profiles_bp)
 
     @jwt.user_identity_loader
     def user_identity_lookup(user_id):
