@@ -5,6 +5,7 @@ from app.models.task import Task, TaskComment
 from app.models.attendance import Attendance, AttendanceConfig
 from app.models.leave import LeaveType, LeaveBalance, LeaveRequest, Holiday
 from app.models.payroll import SalaryStructure, Payslip, DailyWage
+from app.models.audit import SystemLog
 
 __all__ = [
     "User", "RefreshToken", "OTPRequest", "AuditLog",
@@ -12,5 +13,6 @@ __all__ = [
     "Task", "TaskComment",
     "Attendance", "AttendanceConfig",
     "LeaveType", "LeaveBalance", "LeaveRequest", "Holiday",
-    "SalaryStructure", "Payslip", "DailyWage"
+    "SalaryStructure", "Payslip", "DailyWage",
+    "SystemLog",
 ]

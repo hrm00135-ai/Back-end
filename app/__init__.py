@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from config import Config
 from app.extensions import db, migrate, jwt, mail, cors
 
@@ -21,7 +21,8 @@ def create_app(config_class=Config):
     # Import models so they are registered with SQLAlchemy
     from app.models import User, RefreshToken, OTPRequest, AuditLog
 
-# Register blueprints
+    # Register blueprints
+
     from app.routes.auth import auth_bp
     from app.routes.users import users_bp
     from app.routes.profiles import profiles_bp
@@ -29,6 +30,7 @@ def create_app(config_class=Config):
     from app.routes.attendance import attendance_bp
     from app.routes.leaves import leaves_bp
     from app.routes.payroll import payroll_bp
+    from app.routes.reports import reports_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(users_bp)
@@ -37,6 +39,7 @@ def create_app(config_class=Config):
     app.register_blueprint(attendance_bp)
     app.register_blueprint(leaves_bp)
     app.register_blueprint(payroll_bp)
+    app.register_blueprint(reports_bp)
 
     # JWT callbacks
     @jwt.user_identity_loader
@@ -67,6 +70,38 @@ def create_app(config_class=Config):
             "error": "authorization_required",
         }), 401
 
+# Auto-log all authenticated API calls to system log
+    @app.after_request
+    def log_request(response):
+        from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+        from app.utils.system_logger import system_log
+        
+        # Only log API calls, skip health checks and static
+        if not request.path.startswith("/api/") or request.path == "/api/health":
+            return response
+        
+        # Skip GET requests to reduce noise (optional — remove if you want all)
+        if request.method == "GET":
+            return response
+
+        try:
+            verify_jwt_in_request(optional=True)
+            uid = get_jwt_identity()
+        except Exception:
+            uid = None
+
+        try:
+            system_log(
+                action=f"{request.method}_{request.path}",
+                user_id=uid,
+                resource=request.path.split("/")[2] if len(request.path.split("/")) > 2 else None,
+                details={"status_code": response.status_code},
+            )
+        except Exception:
+            pass  # Never break the response for logging
+
+        return response
+    
     # Health check
     @app.route("/api/health", methods=["GET"])
     def health_check():
