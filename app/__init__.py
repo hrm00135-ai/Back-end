@@ -31,6 +31,8 @@ def create_app(config_class=Config):
     from app.routes.leaves import leaves_bp
     from app.routes.payroll import payroll_bp
     from app.routes.reports import reports_bp
+    from app.routes.metals import metals_bp
+
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(users_bp)
@@ -40,6 +42,7 @@ def create_app(config_class=Config):
     app.register_blueprint(leaves_bp)
     app.register_blueprint(payroll_bp)
     app.register_blueprint(reports_bp)
+    app.register_blueprint(metals_bp)
 
     # JWT callbacks
     @jwt.user_identity_loader
