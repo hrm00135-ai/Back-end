@@ -9,22 +9,28 @@ class Config:
     # Flask
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-fallback-key")
     
-    # Database
-    DB_HOST = os.getenv("DB_HOST", "localhost")
-    DB_PORT = os.getenv("DB_PORT", "3306")
-    DB_NAME = os.getenv("DB_NAME", "jewelcraft_hrm")
-    DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
     
-    SQLALCHEMY_DATABASE_URI = (
-        f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    )
+    # Database
+    MYSQL_URL = os.getenv("SQLALCHEMY_DATABASE_URI")
+
+    if MYSQL_URL:
+        SQLALCHEMY_DATABASE_URI = MYSQL_URL
+    else:
+        DB_HOST = os.getenv("DB_HOST", "localhost")
+        DB_PORT = os.getenv("DB_PORT", "3306")
+        DB_NAME = os.getenv("DB_NAME", "jewelcraft_hrm")
+        DB_USER = os.getenv("DB_USER", "root")
+        DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+
+        SQLALCHEMY_DATABASE_URI = (
+            f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        )
+
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_recycle": 300,
         "pool_pre_ping": True,
     }
-    
     # JWT
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "jwt-dev-fallback")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(
