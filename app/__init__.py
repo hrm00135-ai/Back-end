@@ -2,7 +2,7 @@ import os
 from flask import Flask, jsonify, request
 from config import Config
 from app.extensions import db, migrate, jwt, mail, cors
-
+from flask_cors import CORS
 
 def create_app(config_class=Config):
     app = Flask(__name__)
@@ -16,7 +16,13 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
     jwt.init_app(app)
     mail.init_app(app)
-    cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, resources={
+        r"/*": {
+            "origins": ["http://localhost:5173", "http://127.0.0.1:5173"], 
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"]
+        }
+    }, supports_credentials=True)
 
     # Import models so they are registered with SQLAlchemy
     from app.models import User, RefreshToken, OTPRequest, AuditLog
