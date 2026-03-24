@@ -12,8 +12,11 @@ class Config:
     # Database
     MYSQL_URL = os.getenv("SQLALCHEMY_DATABASE_URI")
 
-    if MYSQL_URL and MYSQL_URL.startswith("mysql://"):
-        MYSQL_URL = MYSQL_URL.replace("mysql://", "mysql+pymysql://")
+    if MYSQL_URL:
+        if MYSQL_URL.startswith("mysql://"):
+            MYSQL_URL = MYSQL_URL.replace("mysql://", "mysql+pymysql://")
+    else:
+        MYSQL_URL = "sqlite:///local.db"  # fallback so app doesn't crash
 
     SQLALCHEMY_DATABASE_URI = MYSQL_URL
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -21,22 +24,7 @@ class Config:
         "pool_recycle": 300,
         "pool_pre_ping": True,
     }
-    # else:
-    #     DB_HOST = os.getenv("DB_HOST", "localhost")
-    #     DB_PORT = os.getenv("DB_PORT", "3306")
-    #     DB_NAME = os.getenv("DB_NAME", "jewelcraft_hrm")
-    #     DB_USER = os.getenv("DB_USER", "root")
-    #     DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-
-    #     SQLALCHEMY_DATABASE_URI = (
-    #         f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    #     )
-
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_recycle": 300,
-        "pool_pre_ping": True,
-    }
+    
     # JWT
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "jwt-dev-fallback")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(
