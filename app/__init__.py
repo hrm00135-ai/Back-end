@@ -129,6 +129,7 @@ def create_app(config_class=Config):
             email="admin@jewelcraft.com",
             password_hash=hash_password("Admin@123"),
             role="super_admin",
+            phone="0000000000",
             is_active=True,
         )
         db.session.add(u)
