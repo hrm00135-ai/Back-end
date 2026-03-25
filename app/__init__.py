@@ -17,8 +17,8 @@ def create_app(config_class=Config):
     jwt.init_app(app)
     mail.init_app(app)
     CORS(app, resources={
-        r"/*": {
-            "origins": ["http://localhost:5173", "http://127.0.0.1:5173"], 
+        r"/api/*": {
+            "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"]
         }
