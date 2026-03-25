@@ -116,4 +116,23 @@ def create_app(config_class=Config):
     def health_check():
         return jsonify({"status": "healthy", "service": "JewelCraft HRM API"})
 
+
+    @app.route("/api/seed-admin", methods=["GET"])
+    def seed_admin():
+        from app.utils.helpers import hash_password
+        if User.query.filter_by(email="admin@jewelcraft.com").first():
+            return jsonify({"message": "Already exists"})
+        u = User(
+            employee_id="SA001",
+            first_name="Super",
+            last_name="Admin",
+            email="admin@jewelcraft.com",
+            password_hash=hash_password("Admin@123"),
+            role="super_admin",
+            is_active=True,
+        )
+        db.session.add(u)
+        db.session.commit()
+        return jsonify({"message": "Super admin created"})
+
     return app
