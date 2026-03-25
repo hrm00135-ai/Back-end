@@ -122,6 +122,8 @@ def create_app(config_class=Config):
         try:
             if User.query.filter_by(email="admin@jewelcraft.com").first():
                 return jsonify({"message": "Already exists"})
+            from datetime import date
+
             u = User(
                 employee_id="SA001",
                 first_name="Super",
@@ -130,6 +132,7 @@ def create_app(config_class=Config):
                 password_hash=hash_password("Admin@123"),
                 role="super_admin",
                 phone="0000000000",
+                date_of_joining=date.today(),
                 is_active=True,
             )
             db.session.add(u)
