@@ -18,11 +18,11 @@ def create_app(config_class=Config):
     mail.init_app(app)
     CORS(app, resources={
         r"/api/*": {
-            "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+             "origins": "*",
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"]
         }
-    }, supports_credentials=True)
+     }, supports_credentials=False)
 
     # Import models so they are registered with SQLAlchemy
     from app.models import User, RefreshToken, OTPRequest, AuditLog
