@@ -27,13 +27,14 @@ def register_admin():
     Body: { "email", "password", "first_name", "last_name", "phone", ... }
     """
     current_user_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.form
+    photo = request.files.get("photo")
 
     if not data:
         return error_response("Request body is required", 400)
 
     # Validate required fields
-    required = ["email", "password", "first_name", "last_name", "phone"]
+    required = ["email", "password", "first_name", "phone"]
     missing = [f for f in required if not data.get(f)]
     if missing:
         return error_response(f"Missing required fields: {', '.join(missing)}", 400)
@@ -61,6 +62,13 @@ def register_admin():
     else:
         doj = date.today()
 
+    
+    photo_url = None
+    if photo:
+        filename = f"uploads/{email}_{photo.filename}"
+        photo.save(filename)
+        photo_url = filename
+
     admin = User(
         employee_id=employee_id,
         email=email,
@@ -69,12 +77,14 @@ def register_admin():
         first_name=data["first_name"].strip(),
         last_name=data["last_name"].strip(),
         phone=data["phone"].strip(),
+        photo_url=photo_url,
         alt_phone=data.get("alt_phone", "").strip() or None,
         department=data.get("department", "").strip() or None,
         designation=data.get("designation", "").strip() or None,
         date_of_joining=doj,
         location_of_work=data.get("location_of_work", "").strip() or None,
         registered_by=current_user_id,
+        
     )
 
     db.session.add(admin)
@@ -105,12 +115,14 @@ def register_employee():
     Body: { "email", "password", "first_name", "last_name", "phone", ... }
     """
     current_user_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.form
+    photo = request.files.get("photo")
+    
 
     if not data:
         return error_response("Request body is required", 400)
 
-    required = ["email", "password", "first_name", "last_name", "phone"]
+    required = ["email", "password", "first_name", "phone"]
     missing = [f for f in required if not data.get(f)]
     if missing:
         return error_response(f"Missing required fields: {', '.join(missing)}", 400)
@@ -135,6 +147,12 @@ def register_employee():
     else:
         doj = date.today()
 
+    photo_url = None
+    if photo:
+        filename = f"uploads/{email}_{photo.filename}"
+        photo.save(filename)
+        photo_url = filename
+
     employee = User(
         employee_id=employee_id,
         email=email,
@@ -143,6 +161,7 @@ def register_employee():
         first_name=data["first_name"].strip(),
         last_name=data["last_name"].strip(),
         phone=data["phone"].strip(),
+        photo_url=photo_url,
         alt_phone=data.get("alt_phone", "").strip() or None,
         department=data.get("department", "").strip() or None,
         designation=data.get("designation", "").strip() or None,
