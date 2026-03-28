@@ -24,11 +24,17 @@ users_bp = Blueprint("users", __name__, url_prefix="/api/users")
 def register_admin():
     """
     Super Admin registers a new Admin.
-    Body: { "email", "password", "first_name", "last_name", "phone", ... }
+    Accepts: application/json  OR  multipart/form-data
     """
     current_user_id = get_jwt_identity()
-    data = request.form
-    photo = request.files.get("photo")
+
+    # ✅ Accept both JSON and multipart/form-data
+    if request.is_json:
+        data = request.get_json()
+        photo = None
+    else:
+        data = request.form
+        photo = request.files.get("photo")
 
     if not data:
         return error_response("Request body is required", 400)
@@ -62,7 +68,7 @@ def register_admin():
     else:
         doj = date.today()
 
-    
+    # Handle photo upload
     photo_url = None
     if photo:
         filename = f"uploads/{email}_{photo.filename}"
@@ -75,7 +81,7 @@ def register_admin():
         password_hash=hash_password(password),
         role="admin",
         first_name=data["first_name"].strip(),
-        last_name=data["last_name"].strip(),
+        last_name=data.get("last_name", "").strip(),
         phone=data["phone"].strip(),
         photo_url=photo_url,
         alt_phone=data.get("alt_phone", "").strip() or None,
@@ -84,7 +90,6 @@ def register_admin():
         date_of_joining=doj,
         location_of_work=data.get("location_of_work", "").strip() or None,
         registered_by=current_user_id,
-        
     )
 
     db.session.add(admin)
@@ -105,19 +110,24 @@ def register_admin():
 
 
 # ============================================================
-# REGISTER EMPLOYEE (Admin only)
+# REGISTER EMPLOYEE (Admin or Super Admin only)
 # ============================================================
 @users_bp.route("/register/employee", methods=["POST"])
 @require_role("admin", "super_admin")
 def register_employee():
     """
     Admin (or Super Admin) registers a new Employee.
-    Body: { "email", "password", "first_name", "last_name", "phone", ... }
+    Accepts: application/json  OR  multipart/form-data
     """
     current_user_id = get_jwt_identity()
-    data = request.form
-    photo = request.files.get("photo")
-    
+
+    # ✅ Accept both JSON and multipart/form-data
+    if request.is_json:
+        data = request.get_json()
+        photo = None
+    else:
+        data = request.form
+        photo = request.files.get("photo")
 
     if not data:
         return error_response("Request body is required", 400)
@@ -147,6 +157,7 @@ def register_employee():
     else:
         doj = date.today()
 
+    # Handle photo upload
     photo_url = None
     if photo:
         filename = f"uploads/{email}_{photo.filename}"
@@ -159,7 +170,7 @@ def register_employee():
         password_hash=hash_password(password),
         role="employee",
         first_name=data["first_name"].strip(),
-        last_name=data["last_name"].strip(),
+        last_name=data.get("last_name", "").strip(),
         phone=data["phone"].strip(),
         photo_url=photo_url,
         alt_phone=data.get("alt_phone", "").strip() or None,
@@ -196,7 +207,7 @@ def list_users():
     """
     Super Admin: sees all users.
     Admin: sees employees only.
-    Employee: sees only self (redirect to /me).
+    Employee: sees only self.
     """
     current_user_id = get_jwt_identity()
     current_user = User.query.get(current_user_id)
@@ -204,7 +215,6 @@ def list_users():
     if not current_user:
         return error_response("User not found", 404)
 
-    # Query params
     role_filter = request.args.get("role")
     is_active = request.args.get("is_active", "true").lower() == "true"
     page = request.args.get("page", 1, type=int)
@@ -252,11 +262,9 @@ def get_user(user_id):
     if not target_user:
         return error_response("User not found", 404)
 
-    # Employee can only see self
     if current_user.role == "employee" and current_user.id != target_user.id:
         return error_response("Insufficient permissions", 403)
 
-    # Admin can see employees and self
     if current_user.role == "admin" and target_user.role != "employee" and current_user.id != target_user.id:
         return error_response("Insufficient permissions", 403)
 
