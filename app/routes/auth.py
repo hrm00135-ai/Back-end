@@ -27,6 +27,7 @@ from config import Config
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
+
 # ============================================================
 # LOGIN
 # ============================================================
@@ -101,13 +102,13 @@ def login():
 
     # ── Single-session enforcement (#10): force-logout all previous active sessions ──
     active_sessions = LoginSession.query.filter_by(
-        user_id=user.id, is_active=True
+        user_id=user.id, status="active"
     ).all()
+
     for s in active_sessions:
-        s.is_active = False
+        s.status = "logged_out"
         s.logout_time = datetime.utcnow()
-        s.forced_logout = True
-    
+            
     # Revoke all previous refresh tokens
     RefreshToken.query.filter_by(
         user_id=user.id, is_revoked=False
@@ -134,7 +135,7 @@ def login():
         ip_address=ip,
         user_agent=ua,
         session_token=refresh_token_str[:100],
-        is_active=True,
+        status="active"
     )
     db.session.add(session)
     db.session.commit()
@@ -199,10 +200,11 @@ def logout():
 
     # ── Close active login session ──
     active_session = LoginSession.query.filter_by(
-        user_id=int(current_user_id), is_active=True
+        user_id=int(current_user_id), status="active"
     ).order_by(LoginSession.login_time.desc()).first()
+
     if active_session:
-        active_session.is_active = False
+        active_session.status = "logged_out"
         active_session.logout_time = datetime.utcnow()
         db.session.commit()
 
@@ -539,19 +541,6 @@ def get_login_sessions():
         query = query.filter(User.role == "employee")
 
     sessions = query.order_by(LoginSession.login_time.desc()).all()
-
-    ip = request.remote_addr
-    user_agent = request.headers.get("User-Agent")
-
-    session = LoginSession(
-        user_id=User.id,
-        ip_address=ip,
-        user_agent=user_agent,
-        status="active"
-    )
-
-    db.session.add(session)
-    db.session.commit()
     return success_response(data=[s.to_dict() for s in sessions])
 
 
@@ -568,7 +557,7 @@ def get_active_sessions():
     if not current_user or current_user.role not in ("admin", "super_admin"):
         return error_response("Insufficient permissions", 403)
 
-    query = LoginSession.query.filter_by(is_active=True).join(
+    query = LoginSession.query.filter_by(status="active").join(
         User, LoginSession.user_id == User.id
     ).filter(User.is_active == True)
 
