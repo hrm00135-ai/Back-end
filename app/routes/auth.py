@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from flask import Blueprint, request
 from flask_jwt_extended import (
     create_access_token,
@@ -10,6 +10,7 @@ from flask_mail import Message as MailMessage
 from app.extensions import db, mail
 from app.models.user import User
 from app.models.auth import RefreshToken, OTPRequest, AuditLog
+from app.models.notification import LoginSession
 from app.utils.helpers import (
     verify_password,
     hash_password,
@@ -98,6 +99,21 @@ def login():
     user.locked_at = None
     db.session.commit()
 
+    # ── Single-session enforcement (#10): force-logout all previous active sessions ──
+    active_sessions = LoginSession.query.filter_by(
+        user_id=user.id, is_active=True
+    ).all()
+    for s in active_sessions:
+        s.is_active = False
+        s.logout_time = datetime.utcnow()
+        s.forced_logout = True
+    
+    # Revoke all previous refresh tokens
+    RefreshToken.query.filter_by(
+        user_id=user.id, is_revoked=False
+    ).update({"is_revoked": True})
+    db.session.commit()
+
     # Generate tokens
     access_token = create_access_token(identity=str(user.id))
     refresh_token_str = create_refresh_token(identity=str(user.id))
@@ -108,6 +124,19 @@ def login():
         expires_at=datetime.utcnow() + Config.JWT_REFRESH_TOKEN_EXPIRES,
     )
     db.session.add(refresh_token)
+
+    # ── Track login session (#2, #4) ──
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    ua = request.headers.get("User-Agent", "")[:500]
+    session = LoginSession(
+        user_id=user.id,
+        login_time=datetime.utcnow(),
+        ip_address=ip,
+        user_agent=ua,
+        session_token=refresh_token_str[:100],
+        is_active=True,
+    )
+    db.session.add(session)
     db.session.commit()
 
     log_audit(user.id, "LOGIN")
@@ -167,6 +196,15 @@ def logout():
         if token:
             token.is_revoked = True
             db.session.commit()
+
+    # ── Close active login session ──
+    active_session = LoginSession.query.filter_by(
+        user_id=int(current_user_id), is_active=True
+    ).order_by(LoginSession.login_time.desc()).first()
+    if active_session:
+        active_session.is_active = False
+        active_session.logout_time = datetime.utcnow()
+        db.session.commit()
 
     log_audit(current_user_id, "LOGOUT")
     return success_response(message="Logged out successfully")
@@ -461,3 +499,82 @@ def unlock_account(user_id):
     )
 
     return success_response(message=f"Account {target_user.employee_id} unlocked")
+
+
+# ============================================================
+# LOGIN ACTIVITY / SESSIONS (#2, #4)
+# ============================================================
+@auth_bp.route("/sessions", methods=["GET"])
+@jwt_required()
+def get_login_sessions():
+    """
+    Get login sessions. Admin sees employees, Super Admin sees all.
+    Query: ?date=2026-03-30  (defaults to today)
+    """
+    current_user_id = int(get_jwt_identity())
+    current_user = User.query.get(current_user_id)
+
+    if not current_user or current_user.role not in ("admin", "super_admin"):
+        return error_response("Insufficient permissions", 403)
+
+    target_date_str = request.args.get("date")
+    if target_date_str:
+        try:
+            target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return error_response("Invalid date format. Use YYYY-MM-DD", 400)
+    else:
+        target_date = date.today()
+
+    # Build query
+    query = db.session.query(LoginSession).join(
+        User, LoginSession.user_id == User.id
+    ).filter(
+        db.func.date(LoginSession.login_time) == target_date,
+        User.is_active == True,
+    )
+
+    # Admin can only see employees
+    if current_user.role == "admin":
+        query = query.filter(User.role == "employee")
+
+    sessions = query.order_by(LoginSession.login_time.desc()).all()
+
+    ip = request.remote_addr
+    user_agent = request.headers.get("User-Agent")
+
+    session = LoginSession(
+        user_id=User.id,
+        ip_address=ip,
+        user_agent=user_agent,
+        status="active"
+    )
+
+    db.session.add(session)
+    db.session.commit()
+    return success_response(data=[s.to_dict() for s in sessions])
+
+
+# ============================================================
+# ACTIVE SESSIONS (who is currently online)
+# ============================================================
+@auth_bp.route("/sessions/active", methods=["GET"])
+@jwt_required()
+def get_active_sessions():
+    """Get currently active (online) sessions."""
+    current_user_id = int(get_jwt_identity())
+    current_user = User.query.get(current_user_id)
+
+    if not current_user or current_user.role not in ("admin", "super_admin"):
+        return error_response("Insufficient permissions", 403)
+
+    query = LoginSession.query.filter_by(is_active=True).join(
+        User, LoginSession.user_id == User.id
+    ).filter(User.is_active == True)
+
+    if current_user.role == "admin":
+        query = query.filter(User.role == "employee")
+
+    active = query.order_by(LoginSession.login_time.desc()).all()
+
+    return success_response(data=[s.to_dict() for s in active])

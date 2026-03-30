@@ -408,14 +408,21 @@ def upload_photo(user_id):
     if ext not in {"jpg", "jpeg", "png"}:
         return error_response("Only JPG and PNG allowed", 400)
 
-    # Check size (2MB max for photos)
+    # Check raw size (5MB max before compression)
     photo.seek(0, 2)
-    if photo.tell() > 2 * 1024 * 1024:
-        return error_response("Photo too large. Max 2MB", 400)
+    raw_size = photo.tell()
+    if raw_size > 5 * 1024 * 1024:
+        return error_response("Photo too large. Max 5MB before compression", 400)
     photo.seek(0)
 
-    # Save
-    photo_filename = f"{user.employee_id}_photo.{ext}"
+    # ── Compress photo to KB range (#12) ──
+    from app.utils.image_compress import compress_image, get_compressed_size_label
+    compressed_stream, compressed_size, fmt = compress_image(
+        photo, max_size_kb=200, max_dimension=800
+    )
+
+    # Save compressed version
+    photo_filename = f"{user.employee_id}_photo.jpg"  # Always save as .jpg after compression
     upload_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], user.employee_id)
     os.makedirs(upload_dir, exist_ok=True)
 
@@ -424,11 +431,20 @@ def upload_photo(user_id):
         os.remove(user.photo_url)
 
     photo_path = os.path.join(upload_dir, photo_filename)
-    photo.save(photo_path)
+    with open(photo_path, "wb") as f:
+        f.write(compressed_stream.read())
 
     user.photo_url = photo_path
     db.session.commit()
 
-    log_audit(int(current_user_id), "UPLOAD_PHOTO", target_user_id=user_id)
+    log_audit(int(current_user_id), "UPLOAD_PHOTO", target_user_id=user_id,
+              details={"original_size": raw_size, "compressed_size": compressed_size})
 
-    return success_response(data={"photo_url": photo_path}, message="Photo uploaded successfully")
+    return success_response(
+        data={
+            "photo_url": photo_path,
+            "original_size": get_compressed_size_label(raw_size),
+            "compressed_size": get_compressed_size_label(compressed_size),
+        },
+        message=f"Photo uploaded ({get_compressed_size_label(raw_size)} → {get_compressed_size_label(compressed_size)})"
+    )

@@ -27,6 +27,9 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_recycle": 300,
         "pool_pre_ping": True,
+        "pool_size": 20,           # Base connections kept open (#11)
+        "max_overflow": 40,        # Extra connections under load (#11)
+        "pool_timeout": 30,        # Seconds to wait for a connection
     }
     
     # JWT

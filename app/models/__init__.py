@@ -7,6 +7,7 @@ from app.models.leave import LeaveType, LeaveBalance, LeaveRequest, Holiday
 from app.models.payroll import SalaryStructure, Payslip, DailyWage
 from app.models.audit import SystemLog
 from app.models.metals import MetalPrice, MetalPriceHistory
+from .notification import LoginSession
 
 __all__ = [
     "User", "RefreshToken", "OTPRequest", "AuditLog",

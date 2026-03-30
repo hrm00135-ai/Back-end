@@ -4,6 +4,8 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import db
 from app.models.user import User
 from app.models.auth import AuditLog
+from app.models.employee_profile import EmployeeProfile, BankDetail
+from app.models.payroll import SalaryStructure
 from app.utils.helpers import (
     hash_password,
     generate_employee_id,
@@ -17,7 +19,7 @@ users_bp = Blueprint("users", __name__, url_prefix="/api/users")
 
 
 # ============================================================
-# REGISTER ADMIN (Super Admin only)
+# REGISTER ADMIN (Super Admin only — #9: admin cannot create admin)
 # ============================================================
 @users_bp.route("/register/admin", methods=["POST"])
 @require_role("super_admin")
@@ -111,6 +113,7 @@ def register_admin():
 
 # ============================================================
 # REGISTER EMPLOYEE (Admin or Super Admin only)
+# Optional: photo, aadhaar, PAN, bank details, salary (#6, #7)
 # ============================================================
 @users_bp.route("/register/employee", methods=["POST"])
 @require_role("admin", "super_admin")
@@ -118,10 +121,13 @@ def register_employee():
     """
     Admin (or Super Admin) registers a new Employee.
     Accepts: application/json  OR  multipart/form-data
+    
+    Required: email, password, first_name, phone
+    Optional: everything else (photo, bank details, salary, aadhaar, PAN)
     """
     current_user_id = get_jwt_identity()
 
-    # ✅ Accept both JSON and multipart/form-data
+    # Accept both JSON and multipart/form-data
     if request.is_json:
         data = request.get_json()
         photo = None
@@ -157,7 +163,7 @@ def register_employee():
     else:
         doj = date.today()
 
-    # Handle photo upload
+    # Handle photo upload (OPTIONAL #7)
     photo_url = None
     if photo:
         filename = f"uploads/{email}_{photo.filename}"
@@ -182,6 +188,61 @@ def register_employee():
     )
 
     db.session.add(employee)
+    db.session.flush()  # Get employee.id before commit
+
+    # ── Optional: Bank Details during registration (#6, #7) ──
+    bank_data = data.get("bank_details") if isinstance(data, dict) else None
+    if bank_data and isinstance(bank_data, dict):
+        from app.utils.encryption import encrypt_value
+        bank = BankDetail(
+            user_id=employee.id,
+            bank_name=bank_data.get("bank_name", "").strip() or None,
+            branch_name=bank_data.get("branch_name", "").strip() or None,
+            ifsc_code=bank_data.get("ifsc_code", "").strip() or None,
+            account_holder_name=bank_data.get("account_holder_name", "").strip() or None,
+            uan_number=bank_data.get("uan_number", "").strip() or None,
+            esi_number=bank_data.get("esi_number", "").strip() or None,
+        )
+        if bank_data.get("account_number"):
+            bank.account_number_enc = encrypt_value(bank_data["account_number"].strip())
+        if bank_data.get("pan_number"):
+            bank.pan_number_enc = encrypt_value(bank_data["pan_number"].strip())
+        db.session.add(bank)
+
+    # ── Optional: Salary setup during registration (#6) ──
+    salary_data = data.get("salary") if isinstance(data, dict) else None
+    if salary_data and isinstance(salary_data, dict) and salary_data.get("basic_salary"):
+        eff_from = salary_data.get("effective_from")
+        if eff_from:
+            try:
+                eff_from = datetime.strptime(eff_from, "%Y-%m-%d").date()
+            except ValueError:
+                eff_from = doj
+        else:
+            eff_from = doj
+
+        ss = SalaryStructure(
+            user_id=employee.id,
+            basic_salary=float(salary_data.get("basic_salary", 0)),
+            hra=float(salary_data.get("hra", 0)),
+            da=float(salary_data.get("da", 0)),
+            conveyance=float(salary_data.get("conveyance", 0)),
+            medical_allowance=float(salary_data.get("medical_allowance", 0)),
+            special_allowance=float(salary_data.get("special_allowance", 0)),
+            other_allowance=float(salary_data.get("other_allowance", 0)),
+            pf_employee=float(salary_data.get("pf_employee", 0)),
+            pf_employer=float(salary_data.get("pf_employer", 0)),
+            esi_employee=float(salary_data.get("esi_employee", 0)),
+            esi_employer=float(salary_data.get("esi_employer", 0)),
+            professional_tax=float(salary_data.get("professional_tax", 0)),
+            tds=float(salary_data.get("tds", 0)),
+            other_deduction=float(salary_data.get("other_deduction", 0)),
+            effective_from=eff_from,
+            created_by=int(current_user_id),
+        )
+        ss.calculate()
+        db.session.add(ss)
+
     db.session.commit()
 
     log_audit(

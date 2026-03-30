@@ -2,6 +2,7 @@ from datetime import datetime, date, timedelta
 from flask import Blueprint, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import db
+from app.models.notification import LoginSession
 from app.models.user import User
 from app.models.task import Task
 from app.models.attendance import Attendance
@@ -402,4 +403,93 @@ def verify_logs():
         return error_response("Access denied", 403)
 
     result = verify_log_integrity()
+    return success_response(data=result)
+
+
+# ============================================================
+# LOGIN HISTORY REPORT
+# ============================================================
+@reports_bp.route("/login-history", methods=["GET"])
+@jwt_required()
+def login_history():
+    """Login history report. Admin sees employees, Super Admin sees all."""
+    current_user_id = int(get_jwt_identity())
+    current_user = User.query.get(current_user_id)
+
+    if not current_user or current_user.role not in ("admin", "super_admin"):
+        return error_response("Insufficient permissions", 403)
+
+    target_date_str = request.args.get("date")
+    if target_date_str:
+        try:
+            target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return error_response("Invalid date format. Use YYYY-MM-DD", 400)
+    else:
+        target_date = date.today()
+
+    query = db.session.query(LoginSession).join(
+        User, LoginSession.user_id == User.id
+    ).filter(
+        db.func.date(LoginSession.login_time) == target_date,
+        User.is_active == True,
+    )
+
+    # Admin can only see employees
+    if current_user.role == "admin":
+        query = query.filter(User.role == "employee")
+
+    sessions = query.order_by(LoginSession.login_time.desc()).all()
+
+    result = []
+    for s in sessions:
+        user = User.query.get(s.user_id)
+        result.append({
+            "employee_id": user.employee_id,
+            "name": f"{user.first_name} {user.last_name}",
+            "role": user.role,
+            "login_time": s.login_time.isoformat() if s.login_time else None,
+            "logout_time": s.logout_time.isoformat() if s.logout_time else None,
+            "ip_address": s.ip_address,
+            "device": s.user_agent,
+            "status": "Active" if s.is_active else "Logged Out",
+            "forced_logout": s.forced_logout,
+        })
+
+    return success_response(data=result)
+
+
+# ============================================================
+# ACTIVE USERS (WHO IS ONLINE)
+# ============================================================
+@reports_bp.route("/active-users", methods=["GET"])
+@jwt_required()
+def active_users():
+    """Currently logged-in users."""
+    current_user_id = int(get_jwt_identity())
+    current_user = User.query.get(current_user_id)
+
+    if not current_user or current_user.role not in ("admin", "super_admin"):
+        return error_response("Insufficient permissions", 403)
+
+    query = LoginSession.query.filter_by(is_active=True).join(
+        User, LoginSession.user_id == User.id
+    )
+
+    if current_user.role == "admin":
+        query = query.filter(User.role == "employee")
+
+    sessions = query.order_by(LoginSession.login_time.desc()).all()
+
+    result = []
+    for s in sessions:
+        user = User.query.get(s.user_id)
+        result.append({
+            "employee_id": user.employee_id,
+            "name": f"{user.first_name} {user.last_name}",
+            "login_time": s.login_time.isoformat(),
+            "ip_address": s.ip_address,
+            "device": s.user_agent,
+        })
+
     return success_response(data=result)
