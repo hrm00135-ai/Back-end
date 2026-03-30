@@ -24,10 +24,12 @@ def create_app(config_class=Config):
         }
      }, supports_credentials=False)
 
-    # Import models so they are registered with SQLAlchemy
-    from app.models import User, RefreshToken, OTPRequest, AuditLog
-
     # Register blueprints
+    from app.models import User, RefreshToken, OTPRequest, AuditLog
+    from app.models.notification import LoginSession
+ 
+    with app.app_context():
+        db.create_all()
 
     from app.routes.auth import auth_bp
     from app.routes.users import users_bp
