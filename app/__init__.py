@@ -33,9 +33,6 @@ def create_app(config_class=Config):
     from app.models import User, RefreshToken, OTPRequest, AuditLog
     from app.models.notification import LoginSession, Notification
 
-    with app.app_context():
-        db.create_all()
-
     # Register blueprints
     from app.routes.auth import auth_bp
     from app.routes.users import users_bp
