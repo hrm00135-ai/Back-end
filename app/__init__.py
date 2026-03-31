@@ -21,6 +21,10 @@ def create_app(config_class=Config):
              "origins": "*",
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"]
+        },
+        r"/uploads/*": {
+             "origins": "*",
+            "methods": ["GET"],
         }
      }, supports_credentials=False)
 
@@ -120,6 +124,13 @@ def create_app(config_class=Config):
     @app.route("/api/health", methods=["GET"])
     def health_check():
         return jsonify({"status": "healthy", "service": "JewelCraft HRM API"})
+
+    # Serve uploaded files (profile photos, task attachments, documents)
+    @app.route("/uploads/<path:filepath>", methods=["GET"])
+    def serve_upload(filepath):
+        from flask import send_from_directory
+        upload_folder = os.path.abspath(app.config.get("UPLOAD_FOLDER", "uploads"))
+        return send_from_directory(upload_folder, filepath)
 
     @app.route("/api/seed-admin", methods=["GET"])
     def seed_admin():

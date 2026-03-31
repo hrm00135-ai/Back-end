@@ -1,12 +1,84 @@
+import os
 from datetime import datetime, date
-from flask import Blueprint, request
+from flask import Blueprint, request, current_app
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from werkzeug.utils import secure_filename
 from app.extensions import db
 from app.models.user import User
-from app.models.task import Task, TaskComment
+from app.models.task import Task, TaskComment, TaskAttachment
+from app.models.notification import Notification
 from app.utils.helpers import log_audit, success_response, error_response
 
 tasks_bp = Blueprint("tasks", __name__, url_prefix="/api/tasks")
+
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "mp4", "webm", "mov", "avi"}
+VIDEO_EXTENSIONS = {"mp4", "webm", "mov", "avi"}
+IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp"}
+
+
+def _get_ext(filename):
+    return filename.rsplit(".", 1)[1].lower() if "." in filename else ""
+
+
+def _save_task_file(file, task_id):
+    """
+    Save an uploaded file to uploads/tasks/<task_id>/.
+    - Images are compressed WhatsApp-style (resize + quality reduce → ~50-300 KB).
+    - Videos are compressed via ffmpeg if available (480p, CRF 28 → much smaller).
+    Returns: (relative_path, file_type)
+    """
+    ext = _get_ext(file.filename)
+    if ext not in ALLOWED_EXTENSIONS:
+        return None, None
+
+    upload_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], "tasks", str(task_id))
+    os.makedirs(upload_dir, exist_ok=True)
+    timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S%f')
+    safe_name = secure_filename(file.filename)
+
+    if ext in IMAGE_EXTENSIONS:
+        # ── Compress image ──
+        from app.utils.image_compress import compress_image
+        compressed_stream, compressed_size, fmt = compress_image(
+            file.stream, max_size_kb=300, max_dimension=1600, quality=70
+        )
+        out_name = f"{timestamp}_{os.path.splitext(safe_name)[0]}.jpg"
+        file_path = os.path.join(upload_dir, out_name)
+        with open(file_path, "wb") as f:
+            f.write(compressed_stream.read())
+        return file_path, "image"
+
+    elif ext in VIDEO_EXTENSIONS:
+        # ── Save raw first, then try to compress ──
+        raw_name = f"{timestamp}_raw_{safe_name}"
+        raw_path = os.path.join(upload_dir, raw_name)
+        file.save(raw_path)
+
+        from app.utils.image_compress import compress_video
+        result = compress_video(raw_path)
+
+        if result:
+            compressed_path, orig_size, comp_size = result
+            # Remove raw, rename compressed
+            os.remove(raw_path)
+            final_name = f"{timestamp}_{os.path.splitext(safe_name)[0]}.mp4"
+            final_path = os.path.join(upload_dir, final_name)
+            os.rename(compressed_path, final_path)
+            return final_path, "video"
+        else:
+            # ffmpeg not available or compression not worth it — keep raw
+            return raw_path, "video"
+
+    return None, None
+
+
+def _create_notification(user_id, notif_type, message):
+    """Create a notification for a user."""
+    try:
+        n = Notification(user_id=user_id, type=notif_type, message=message)
+        db.session.add(n)
+    except Exception:
+        pass  # Never break main flow for notification
 
 
 # ============================================================
@@ -17,7 +89,7 @@ tasks_bp = Blueprint("tasks", __name__, url_prefix="/api/tasks")
 def create_task():
     """
     Admin/Super Admin creates a task and assigns it to an employee.
-    Body: { "title", "assigned_to", "description", "priority", "due_date", "category", ... }
+    Accepts BOTH JSON and FormData (for file uploads).
     """
     current_user_id = int(get_jwt_identity())
     current_user = User.query.get(current_user_id)
@@ -25,9 +97,11 @@ def create_task():
     if not current_user or current_user.role not in ("admin", "super_admin"):
         return error_response("Only Admin or Super Admin can create tasks", 403)
 
-    data = request.get_json()
-    if not data:
-        return error_response("Request body is required", 400)
+    # Handle both JSON and FormData
+    if request.content_type and "multipart/form-data" in request.content_type:
+        data = request.form.to_dict()
+    else:
+        data = request.get_json() or {}
 
     title = data.get("title", "").strip()
     assigned_to = data.get("assigned_to")
@@ -52,6 +126,19 @@ def create_task():
         except ValueError:
             return error_response("Invalid due_date format. Use YYYY-MM-DD", 400)
 
+    # Parse numeric fields safely
+    def safe_float(val):
+        try:
+            return float(val) if val else None
+        except (ValueError, TypeError):
+            return None
+
+    def safe_int(val):
+        try:
+            return int(val) if val else None
+        except (ValueError, TypeError):
+            return None
+
     task = Task(
         title=title,
         description=data.get("description", "").strip() or None,
@@ -60,13 +147,46 @@ def create_task():
         priority=data.get("priority", "medium"),
         due_date=due_date,
         category=data.get("category", "").strip() or None,
-        estimated_hours=data.get("estimated_hours"),
-        quantity=data.get("quantity", 1),
-        weight_grams=data.get("weight_grams"),
+        estimated_hours=safe_float(data.get("estimated_hours")),
+        quantity=safe_int(data.get("quantity")) or 1,
+        weight_grams=safe_float(data.get("weight_grams")),
+        payment_amount=safe_float(data.get("payment_amount")) or 0,
         admin_notes=data.get("admin_notes", "").strip() or None,
     )
 
     db.session.add(task)
+    db.session.flush()  # Get task.id before saving files
+
+    # Handle file uploads (single 'attachment' or multiple 'attachments')
+    files = request.files.getlist("attachments") or request.files.getlist("attachment")
+    if not files or not any(getattr(f, 'filename', None) for f in files):
+        single = request.files.get("attachment")
+        if single and single.filename:
+            files = [single]
+
+    for f in (files or []):
+        if not f or not f.filename:
+            continue
+        try:
+            file_path, file_type = _save_task_file(f, task.id)
+            if file_path:
+                att = TaskAttachment(
+                    task_id=task.id,
+                    user_id=current_user_id,
+                    file_url=file_path,
+                    file_type=file_type,
+                    original_name=f.filename,
+                )
+                db.session.add(att)
+        except Exception as e:
+            current_app.logger.warning(f"File upload skipped ({f.filename}): {e}")
+
+    # Create notification for assignee
+    _create_notification(
+        int(assigned_to), "task_assigned",
+        f"New task assigned: {title}"
+    )
+
     db.session.commit()
 
     log_audit(current_user_id, "CREATE_TASK", target_user_id=int(assigned_to),
@@ -214,12 +334,23 @@ def update_task(task_id):
     # Admin/Super Admin fields
     if current_user.role in ("admin", "super_admin"):
         admin_fields = ["title", "description", "priority", "category",
-                        "estimated_hours", "quantity", "weight_grams", "admin_notes"]
+                        "estimated_hours", "quantity", "weight_grams", "admin_notes",
+                        "payment_amount"]
         for field in admin_fields:
             if field in data:
                 value = data[field]
                 if isinstance(value, str):
                     value = value.strip() or None
+                elif field in ("estimated_hours", "weight_grams", "payment_amount"):
+                    try:
+                        value = float(value) if value else None
+                    except (ValueError, TypeError):
+                        value = None
+                elif field in ("quantity",):
+                    try:
+                        value = int(value) if value else None
+                    except (ValueError, TypeError):
+                        value = None
                 setattr(task, field, value)
 
         if "assigned_to" in data:
@@ -246,11 +377,11 @@ def update_task(task_id):
         if new_status not in valid_statuses:
             return error_response(f"Invalid status. Must be one of: {', '.join(valid_statuses)}", 400)
 
-        # Employee can only move: pending->in_progress, in_progress->completed
+        # Employee can only: pending->in_progress, in_progress->on_hold (submit for review)
         if current_user.role == "employee":
             allowed_transitions = {
                 "pending": ["in_progress"],
-                "in_progress": ["completed", "on_hold"],
+                "in_progress": ["on_hold"],
                 "on_hold": ["in_progress"],
             }
             if new_status not in allowed_transitions.get(old_status, []):
@@ -263,6 +394,17 @@ def update_task(task_id):
             task.started_at = datetime.utcnow()
         elif new_status == "completed":
             task.completed_at = datetime.utcnow()
+
+        # Create notifications on status change
+        if new_status == "on_hold" and current_user.role == "employee":
+            _create_notification(task.assigned_by, "task_review",
+                                 f"Task submitted for review: {task.title}")
+        elif new_status == "completed" and current_user.role in ("admin", "super_admin"):
+            _create_notification(task.assigned_to, "task_completed",
+                                 f"Task approved & completed: {task.title}")
+        elif new_status == "in_progress" and old_status == "on_hold" and current_user.role in ("admin", "super_admin"):
+            _create_notification(task.assigned_to, "task_rejected",
+                                 f"Task sent back for rework: {task.title}")
 
     if "employee_notes" in data:
         task.employee_notes = data["employee_notes"].strip() or None
@@ -341,6 +483,81 @@ def add_comment(task_id):
     log_audit(current_user_id, "ADD_TASK_COMMENT", details={"task_id": task_id})
 
     return success_response(data=comment.to_dict(), message="Comment added", status_code=201)
+
+
+# ============================================================
+# UPLOAD ATTACHMENTS TO TASK (multiple images/videos)
+# ============================================================
+@tasks_bp.route("/<int:task_id>/attachments", methods=["POST"])
+@jwt_required()
+def upload_attachments(task_id):
+    """Upload one or more images/videos to a task. Both admin and employee can upload."""
+    current_user_id = int(get_jwt_identity())
+    current_user = User.query.get(current_user_id)
+
+    if not current_user:
+        return error_response("User not found", 404)
+
+    task = Task.query.get(task_id)
+    if not task:
+        return error_response("Task not found", 404)
+
+    # Access control — admins can access any task they can view
+    if current_user.role == "employee" and task.assigned_to != current_user_id:
+        return error_response("Insufficient permissions", 403)
+    if current_user.role == "admin" and task.assigned_by != current_user_id and task.assigned_to != current_user_id:
+        return error_response("Insufficient permissions", 403)
+
+    files = request.files.getlist("files") or request.files.getlist("attachments")
+    if not files or not any(f.filename for f in files):
+        single = request.files.get("file") or request.files.get("attachment")
+        if single and single.filename:
+            files = [single]
+        else:
+            return error_response("No files provided", 400)
+
+    saved = []
+    errors = []
+    for f in files:
+        if not f or not f.filename:
+            continue
+        try:
+            file_path, file_type = _save_task_file(f, task_id)
+            if file_path:
+                att = TaskAttachment(
+                    task_id=task_id,
+                    user_id=current_user_id,
+                    file_url=file_path,
+                    file_type=file_type,
+                    original_name=f.filename,
+                )
+                db.session.add(att)
+                saved.append(att)
+            else:
+                errors.append(f"{f.filename}: unsupported format")
+        except Exception as e:
+            errors.append(f"{f.filename}: {str(e)[:80]}")
+
+    if not saved:
+        msg = "No valid files uploaded. Allowed: jpg, png, gif, webp, mp4, webm, mov"
+        if errors:
+            msg += f" | Errors: {'; '.join(errors)}"
+        return error_response(msg, 400)
+
+    db.session.commit()
+
+    log_audit(current_user_id, "UPLOAD_TASK_ATTACHMENT",
+              details={"task_id": task_id, "count": len(saved)})
+
+    msg = f"{len(saved)} file(s) uploaded & compressed"
+    if errors:
+        msg += f" ({len(errors)} skipped)"
+
+    return success_response(
+        data=[a.to_dict() for a in saved],
+        message=msg,
+        status_code=201,
+    )
 
 
 # ============================================================

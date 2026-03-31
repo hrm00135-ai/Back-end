@@ -57,7 +57,7 @@ class Config:
     
     # Uploads
     UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
-    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", "16777216"))  # 16MB
+    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", "52428800"))  # 50MB (compressed server-side)
     
     # Auth settings
     MAX_FAILED_LOGIN_ATTEMPTS = 5

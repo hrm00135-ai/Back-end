@@ -39,6 +39,9 @@ class Task(db.Model):
     quantity = db.Column(db.Integer, default=1)
     weight_grams = db.Column(db.Float, nullable=True)  # metal weight
 
+    # Payment
+    payment_amount = db.Column(db.Float, nullable=True, default=0)  # ₹ per task
+
     # Notes
     admin_notes = db.Column(db.Text, nullable=True)
     employee_notes = db.Column(db.Text, nullable=True)
@@ -51,6 +54,7 @@ class Task(db.Model):
     assignee = db.relationship("User", foreign_keys=[assigned_to], backref="assigned_tasks")
     assigner = db.relationship("User", foreign_keys=[assigned_by], backref="created_tasks")
     comments = db.relationship("TaskComment", backref="task", lazy="dynamic", cascade="all, delete-orphan")
+    attachments = db.relationship("TaskAttachment", backref="task", lazy="dynamic", cascade="all, delete-orphan")
 
     def to_dict(self, include_comments=False):
         data = {
@@ -72,11 +76,13 @@ class Task(db.Model):
             "actual_hours": self.actual_hours,
             "quantity": self.quantity,
             "weight_grams": self.weight_grams,
+            "payment_amount": self.payment_amount or 0,
             "admin_notes": self.admin_notes,
             "employee_notes": self.employee_notes,
             "completion_notes": self.completion_notes,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "attachments": [a.to_dict() for a in self.attachments.order_by(TaskAttachment.created_at.asc()).all()],
         }
         if include_comments:
             data["comments"] = [c.to_dict() for c in self.comments.order_by(TaskComment.created_at.asc()).all()]
@@ -103,5 +109,33 @@ class TaskComment(db.Model):
             "user_name": f"{self.user.first_name} {self.user.last_name}" if self.user else None,
             "user_role": self.user.role if self.user else None,
             "comment": self.comment,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class TaskAttachment(db.Model):
+    """File attachments (images/videos) on a task."""
+    __tablename__ = "task_attachments"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    file_url = db.Column(db.String(500), nullable=False)
+    file_type = db.Column(db.String(20), default="image")  # image or video
+    original_name = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="task_attachments")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "user_id": self.user_id,
+            "user_name": f"{self.user.first_name} {self.user.last_name}" if self.user else None,
+            "user_role": self.user.role if self.user else None,
+            "file_url": self.file_url,
+            "file_type": self.file_type,
+            "original_name": self.original_name,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
