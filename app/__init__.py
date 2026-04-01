@@ -32,7 +32,8 @@ def create_app(config_class=Config):
 # Import models so tables are created
     from app.models import User, RefreshToken, OTPRequest, AuditLog
     from app.models.notification import LoginSession, Notification
-
+    from app.routes.payments import payments_bp
+    
     # Register blueprints
     from app.routes.auth import auth_bp
     from app.routes.users import users_bp
@@ -55,6 +56,7 @@ def create_app(config_class=Config):
     app.register_blueprint(reports_bp)
     app.register_blueprint(metals_bp)
     app.register_blueprint(notifications_bp)   # ← ADD THIS
+    app.register_blueprint(payments_bp, url_prefix="/api/payments")
 
     # JWT callbacks
     @jwt.user_identity_loader
