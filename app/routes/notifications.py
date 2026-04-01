@@ -14,12 +14,12 @@ def get_notifications():
 
     notifications = Notification.query.filter_by(
         user_id=user_id
-    ).order_by(Notification.created_at.desc()).limit(20).all()
+    ).order_by(Notification.created_at.desc()).limit(50).all()
 
     return success_response(data=[n.to_dict() for n in notifications])
 
 
-@notifications_bp.route("/read-all", methods=["POST"])
+@notifications_bp.route("/mark-all-read", methods=["PUT", "POST"])
 @jwt_required()
 def mark_all_read():
     user_id = int(get_jwt_identity())
@@ -32,7 +32,14 @@ def mark_all_read():
     return success_response(message="All notifications marked as read")
 
 
-@notifications_bp.route("/<int:notif_id>/read", methods=["POST"])
+# Keep old path for backwards compat
+@notifications_bp.route("/read-all", methods=["PUT", "POST"])
+@jwt_required()
+def mark_all_read_legacy():
+    return mark_all_read()
+
+
+@notifications_bp.route("/<int:notif_id>/read", methods=["PUT", "POST"])
 @jwt_required()
 def mark_read(notif_id):
     user_id = int(get_jwt_identity())

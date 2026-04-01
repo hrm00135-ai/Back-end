@@ -452,8 +452,7 @@ def login_history():
             "logout_time": s.logout_time.isoformat() if s.logout_time else None,
             "ip_address": s.ip_address,
             "device": s.user_agent,
-            "status": "Active" if s.is_active else "Logged Out",
-            "forced_logout": s.forced_logout,
+            "status": "Active" if s.status == "active" else "Logged Out",
         })
 
     return success_response(data=result)
@@ -472,7 +471,7 @@ def active_users():
     if not current_user or current_user.role not in ("admin", "super_admin"):
         return error_response("Insufficient permissions", 403)
 
-    query = LoginSession.query.filter_by(is_active=True).join(
+    query = LoginSession.query.filter_by(status="active").join(
         User, LoginSession.user_id == User.id
     )
 

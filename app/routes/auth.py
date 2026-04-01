@@ -541,7 +541,20 @@ def get_login_sessions():
         query = query.filter(User.role == "employee")
 
     sessions = query.order_by(LoginSession.login_time.desc()).all()
-    return success_response(data=[s.to_dict() for s in sessions])
+
+    result = []
+    for s in sessions:
+        user = User.query.get(s.user_id)
+        d = s.to_dict()
+        if user:
+            d["first_name"] = user.first_name
+            d["last_name"] = user.last_name
+            d["role"] = user.role
+            d["employee_id"] = user.employee_id
+            d["photo_url"] = user.photo_url
+        result.append(d)
+
+    return success_response(data=result)
 
 
 # ============================================================
@@ -566,4 +579,87 @@ def get_active_sessions():
 
     active = query.order_by(LoginSession.login_time.desc()).all()
 
-    return success_response(data=[s.to_dict() for s in active])
+    result = []
+    for s in active:
+        user = User.query.get(s.user_id)
+        d = s.to_dict()
+        if user:
+            d["first_name"] = user.first_name
+            d["last_name"] = user.last_name
+            d["role"] = user.role
+            d["employee_id"] = user.employee_id
+            d["photo_url"] = user.photo_url
+        result.append(d)
+
+    return success_response(data=result)
+
+# ============================================================
+# BULK LOGOUT (Admin/Super Admin)
+# ============================================================
+@auth_bp.route("/logout/bulk", methods=["POST"])
+@jwt_required()
+def bulk_logout():
+    """
+    Force-logout users by role.
+    Super Admin can logout all employees, all admins, or both.
+    Admin can logout all employees only.
+    Body: { "target": "employees" | "admins" | "all" }
+    """
+    current_user_id = int(get_jwt_identity())
+    current_user = User.query.get(current_user_id)
+
+    if not current_user or current_user.role not in ("admin", "super_admin"):
+        return error_response("Insufficient permissions", 403)
+
+    data = request.get_json(silent=True) or {}
+    target = data.get("target", "employees")
+
+    if target == "admins" and current_user.role != "super_admin":
+        return error_response("Only Super Admin can logout admins", 403)
+
+    if target == "all" and current_user.role != "super_admin":
+        return error_response("Only Super Admin can logout all users", 403)
+
+    # Build list of roles to logout
+    roles_to_logout = []
+    if target in ("employees", "all"):
+        roles_to_logout.append("employee")
+    if target in ("admins", "all"):
+        roles_to_logout.append("admin")
+
+    # Get all user IDs for those roles (exclude current user)
+    user_ids = [u.id for u in User.query.filter(
+        User.role.in_(roles_to_logout),
+        User.is_active == True,
+        User.id != current_user_id,
+    ).all()]
+
+    if not user_ids:
+        return success_response(message="No active users to logout", data={"count": 0})
+
+    # Close all active sessions
+    count = LoginSession.query.filter(
+        LoginSession.user_id.in_(user_ids),
+        LoginSession.status == "active",
+    ).update(
+        {"status": "logged_out", "logout_time": datetime.utcnow()},
+        synchronize_session="fetch",
+    )
+
+    # Revoke all refresh tokens
+    from app.models.auth import RefreshToken
+    RefreshToken.query.filter(
+        RefreshToken.user_id.in_(user_ids),
+        RefreshToken.is_revoked == False,
+    ).update({"is_revoked": True}, synchronize_session="fetch")
+
+    db.session.commit()
+
+    log_audit(current_user_id, "BULK_LOGOUT", details={
+        "target": target, "users_affected": count,
+    })
+
+    return success_response(
+        message=f"Logged out {count} active session(s)",
+        data={"count": count, "target": target},
+    )

@@ -76,7 +76,7 @@ def set_prices():
     if not data or not data.get("prices"):
         return error_response("prices array is required", 400)
 
-    from app.utils.metal_fetcher import update_metal_prices
+    from app.models.metal_fetcher import update_metal_prices
     from flask import current_app
 
     prices_data = []
