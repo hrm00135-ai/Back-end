@@ -245,3 +245,5 @@ npm start
 - **Account lock**: 5 failed attempts → locked for 30 min
 - **System log chain**: SHA-256 hash chain, tamper-detectable via `/api/reports/system-logs/verify`
 - **Encryption**: Bank account numbers and PAN stored encrypted (Fernet-compatible AES)
+#   s h i k h a _ b a c k _ e n d _ f i n a l  
+ 
